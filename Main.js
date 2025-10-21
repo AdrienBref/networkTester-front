@@ -2,7 +2,9 @@
 const API_BASE = window.API_BASE || '';                      // p. ej. 'http://localhost:8081'
 const ENDPOINTS = {
   devices: `${API_BASE}/api/devices`,
-  updateDevice: (id) => `${API_BASE}/api/devices/${id}`
+  updateDevice: (id) => `${API_BASE}/api/devices/${id}`,
+  create: `${API_BASE}/api/devices/createDevice`,
+  delete: `${API_BASE}/api/devices/deleteDevice`
 };
 const WS_BASE = API_BASE || '';                              // para SockJS
 
@@ -55,8 +57,7 @@ async function fetchDevices(){
         always: !!d.testAlways,
         minOfflineAlarm: d.minOfflineAlarm ?? 0,
         start, end,
-        notifyDays: Array.isArray(d.notifyDays) ? d.notifyDays : [],
-        // NUEVO: reglas por día
+        notifyDays: Array.isArray(d.notificationDays) ? d.notificationDays : (Array.isArray(d.notifyDays) ? d.notifyDays : []),
         scheduleRules: Array.isArray(d.scheduleRules) ? d.scheduleRules : [] // [{day,start,end}]
       };
     });
@@ -168,7 +169,8 @@ function render(){
           dev.minOfflineAlarm = saved.minOfflineAlarm;
           dev.start = toHHMM(saved.startTime ?? saved.start) || dev.start;
           dev.end   = toHHMM(saved.endTime   ?? saved.end)   || dev.end;
-          dev.notifyDays   = Array.isArray(saved.notifyDays) ? saved.notifyDays : (dev.notifyDays || []);
+          dev.notifyDays   = Array.isArray(saved.notificationDays) ? saved.notificationDays
+                                : (Array.isArray(saved.notifyDays) ? saved.notifyDays : (dev.notifyDays || []));
           dev.scheduleRules = Array.isArray(saved.scheduleRules) ? saved.scheduleRules : (dev.scheduleRules || []);
 
           setStatus(`Dispositivo "${dev.name}" actualizado`, '');
@@ -206,7 +208,7 @@ function updateStatus(dot, txt, online){
   else { dot.classList.add('bad'); txt.textContent = 'Offline'; }
 }
 
-/* ===================== Modal avanzado ===================== */
+/* ===================== Modal avanzado / creación ===================== */
 const modal = $('#modal');
 const form  = $('#modal-form');
 const closeBtn = $('#modal-close');
@@ -215,10 +217,36 @@ const addRulesButton = $('#add-rules-btn');
 const rulesWrap = $('#rulesWrap');
 const rulesList = $('#rulesList');
 const ruleAddBtn = $('#ruleAdd');
+
+let formMode = 'edit';       // 'edit' | 'create'
 let editingDevice = null;
 
+function setModalTitle(txt){
+  const t = $('#modal-title');
+  if (t) t.textContent = txt;
+}
+
+function resetFormFields(){
+  $('#f-name').value = '';
+  $('#f-ip').value = '';
+  $('#f-pingEvery').value = 1000;
+  $('#f-minOfflineAlarm').value = 0;
+  $('#f-always').checked = false;
+
+  ['#f-horaInicio', '#f-minInicio', '#f-horaFin', '#f-minFin'].forEach(sel => {
+    const el = $(sel); if (el) el.value = '';
+  });
+
+  document.querySelectorAll('input[name="f-days"]').forEach(cb => cb.checked = false);
+
+  // Reglas UI a vacío
+  if (rulesList) rulesList.innerHTML = '';
+  if (rulesWrap) rulesWrap.hidden = true;
+
+  applyAlwaysLock(false);
+}
+
 function applyAlwaysLock(always){
-  // Mantenemos sombreado/bloqueado SOLO el bloque de "Horario" superior.
   const schedWrap = $('#schedWrap');
   const daysWrap  = $('#daysWrap');
 
@@ -232,11 +260,18 @@ function applyAlwaysLock(always){
 
   if (schedWrap) schedWrap.classList.toggle('locked', !!always);
   if (daysWrap)  daysWrap.classList.toggle('locked',  !!always);
+}
 
-  // IMPORTANTE: las reglas por día permanecen editables SIEMPRE.
+function openCreate(){
+  formMode = 'create';
+  editingDevice = null;
+  resetFormFields();
+  setModalTitle('Añadir dispositivo');
+  modal.classList.remove('hidden');
 }
 
 function openAdvanced(dev){
+  formMode = 'edit';
   editingDevice = dev;
 
   $('#f-name').value = dev.name || '';
@@ -268,12 +303,12 @@ function openAdvanced(dev){
     cb.checked = Array.isArray(dev.notifyDays) && dev.notifyDays.includes(cb.value);
   });
 
-  // Render de reglas existentes
+  // Render de reglas existentes (si las hubiera)
   renderRules(dev.scheduleRules || []);
 
-  // Bloqueo por "Test siempre" SOLO para el bloque de horario upper
   applyAlwaysLock(!!dev.always);
 
+  setModalTitle('Editar dispositivo');
   modal.classList.remove('hidden');
 }
 
@@ -282,11 +317,13 @@ function closeModal(){
   editingDevice = null;
 }
 
+const deleteBtn = $('#deleteDeviceBtn');
+
 closeBtn.addEventListener('click', closeModal);
 cancelBtn.addEventListener('click', closeModal);
 modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
-// Mostrar la caja de reglas al pulsar el botón de añadir reglas (y no ocultarla después)
+// Mostrar reglas (opcional; no se envían en creación)
 addRulesButton.addEventListener('click', ()=>{
   rulesWrap.hidden = false;
 });
@@ -294,28 +331,56 @@ ruleAddBtn.addEventListener('click', ()=>{
   addRuleRow({ day: 'MONDAY', start: '08:00', end: '17:00' });
 });
 
-// Cambiar bloqueo al togglear "Test siempre" en el modal (no afecta a reglas)
+// Cambiar bloqueo al togglear "Test siempre" en el modal
 document.addEventListener('change', (e)=>{
   if (e.target && e.target.id === 'f-always'){
     applyAlwaysLock(!!e.target.checked);
   }
 });
 
+if (deleteBtn) {
+deleteBtn.addEventListener('click', async () => {
+    if (!editingDevice) {
+      alert('No hay dispositivo seleccionado para eliminar.');
+      return;
+    }
+
+    const confirmDelete = confirm(`¿Seguro que quieres eliminar "${editingDevice.name}"?`);
+    if (!confirmDelete) return;
+
+    try {
+      setStatus('Eliminando dispositivo...', 'loading');
+
+      const res = await fetch(`${ENDPOINTS.delete}/${editingDevice.id}`, {
+        method: 'DELETE'
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      // Quitar del estado local
+      state.devices = state.devices.filter(d => d.id !== editingDevice.id);
+      render();
+      closeModal();
+
+      setStatus(`Dispositivo "${editingDevice.name}" eliminado correctamente`, '');
+    } catch (err) {
+      console.error(err);
+      setStatus(`Error eliminando dispositivo: ${err.message}`, 'error');
+    }
+  });
+}
+
 /* ====== Reglas UI ====== */
 function renderRules(rules){
-  rulesWrap.hidden = false; // si hay reglas, muéstralo
+  rulesWrap.hidden = false;
   rulesList.innerHTML = '';
   (rules || []).forEach(r => addRuleRow(r));
-  if ((rules || []).length === 0){
-    // si no hay, muestra 1 por defecto al abrir desde el botón + o al guardar
-  }
 }
 
 function addRuleRow(rule){
   const row = document.createElement('div');
   row.className = 'rule-row';
 
-  // Día
   const fieldDay = document.createElement('div');
   fieldDay.className = 'field';
   fieldDay.innerHTML = `
@@ -331,7 +396,6 @@ function addRuleRow(rule){
     </select>
   `;
 
-  // Inicio
   const fieldStart = document.createElement('div');
   fieldStart.className = 'field';
   fieldStart.innerHTML = `
@@ -339,7 +403,6 @@ function addRuleRow(rule){
     <input type="time" class="rule-start" value="${rule?.start ?? '08:00'}" />
   `;
 
-  // Fin
   const fieldEnd = document.createElement('div');
   fieldEnd.className = 'field';
   fieldEnd.innerHTML = `
@@ -347,7 +410,6 @@ function addRuleRow(rule){
     <input type="time" class="rule-end" value="${rule?.end ?? '17:00'}" />
   `;
 
-  // Eliminar
   const remove = document.createElement('div');
   remove.innerHTML = `<button type="button" class="remove">Eliminar</button>`;
   remove.querySelector('button').addEventListener('click', ()=> {
@@ -361,12 +423,10 @@ function addRuleRow(rule){
 
   rulesList.appendChild(row);
 
-  // Set day if provided
   const sel = row.querySelector('.rule-day');
   if (rule?.day) sel.value = rule.day;
 }
 
-/* Recoger reglas del DOM */
 function collectRules(){
   return Array.from(rulesList.querySelectorAll('.rule-row')).map(row => {
     const day   = row.querySelector('.rule-day')?.value;
@@ -376,9 +436,9 @@ function collectRules(){
   }).filter(r => r.day && r.start && r.end);
 }
 
+/* ====== Submit modal ====== */
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (!editingDevice) return;
 
   const always = !!$('#f-always')?.checked;
 
@@ -393,15 +453,80 @@ form.addEventListener('submit', async (e) => {
   let selectedDays = Array.from(document.querySelectorAll('input[name="f-days"]:checked'))
     .map(cb => cb.value);
 
-  // Reglas por día (se recogen siempre)
+  // Reglas (no se envían en creación porque el DTO no las contempla)
   const rules = collectRules();
 
-  // Si es "Test siempre", el bloque superior queda ignorado (pero conservamos reglas)
   if (always){
     start = null;
     end = null;
     selectedDays = [];
   }
+
+  if (formMode === 'create'){
+    // === CREAR (POST) conforme a DeviceCreateDTO ===
+    const payloadCreate = {
+      name: ($('#f-name')?.value || '').trim(),
+      ip: ($('#f-ip')?.value || '').trim(),
+      pingInterval: Number($('#f-pingEvery')?.value) || 1000,
+      testAlways: always,
+      minOfflineAlarm: Number($('#f-minOfflineAlarm')?.value) || 0,
+      notificationDays: selectedDays,
+      startTime: start,
+      endTime: end
+    };
+
+    if (!payloadCreate.name || !payloadCreate.ip){
+      setStatus('Nombre e IP son obligatorios', 'error');
+      return;
+    }
+    if (payloadCreate.pingInterval < 100){
+      setStatus('El pingInterval debe ser ≥ 100 ms', 'error');
+      return;
+    }
+    if (payloadCreate.minOfflineAlarm < 0){
+      setStatus('El mínimo offline debe ser ≥ 0', 'error');
+      return;
+    }
+
+    try{
+      setStatus('Creando dispositivo…', 'loading');
+      const res = await fetch(ENDPOINTS.create, {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', 'Accept':'application/json' },
+        body: JSON.stringify(payloadCreate)
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const created = await res.json();
+
+      // Normalizamos para el front
+      const dev = {
+        id: created.id,
+        name: created.name,
+        ip: created.ip,
+        online: false,
+        pingEvery: created.pingInterval ?? payloadCreate.pingInterval,
+        always: !!created.testAlways,
+        minOfflineAlarm: created.minOfflineAlarm ?? payloadCreate.minOfflineAlarm,
+        start: toHHMM(created.startTime ?? created.start) || toHHMM(payloadCreate.startTime),
+        end:   toHHMM(created.endTime   ?? created.end)   || toHHMM(payloadCreate.endTime),
+        notifyDays: Array.isArray(created.notificationDays) ? created.notificationDays
+                    : (Array.isArray(created.notifyDays) ? created.notifyDays : payloadCreate.notificationDays),
+        scheduleRules: Array.isArray(created.scheduleRules) ? created.scheduleRules : []
+      };
+
+      state.devices.push(dev);
+      render();
+      closeModal();
+      setStatus(`Dispositivo "${dev.name}" creado`, '');
+    } catch(err){
+      console.error(err);
+      setStatus(`Error creando: ${err.message||err}`, 'error');
+    }
+    return;
+  }
+
+  // === EDITAR (PUT) ===
+  if (!editingDevice) return;
 
   const payload = {
     id: editingDevice.id,
@@ -413,13 +538,13 @@ form.addEventListener('submit', async (e) => {
     start,
     end,
     notifyDays: selectedDays,
-    scheduleRules: rules // <== NUEVO
+    scheduleRules: rules
   };
 
   try{
     const res = await fetch(ENDPOINTS.updateDevice(editingDevice.id), {
       method: 'PUT',
-      headers: { 'Content-Type':'application/json', 'Accept':'application/json' },
+      headers: { 'Content-Type':'application/json', 'Accept': 'application/json' },
       body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -436,7 +561,8 @@ form.addEventListener('submit', async (e) => {
         minOfflineAlarm: saved.minOfflineAlarm,
         start: toHHMM(saved.startTime ?? saved.start) || '',
         end:   toHHMM(saved.endTime   ?? saved.end)   || '',
-        notifyDays: Array.isArray(saved.notifyDays) ? saved.notifyDays : selectedDays,
+        notifyDays: Array.isArray(saved.notificationDays) ? saved.notificationDays
+                      : (Array.isArray(saved.notifyDays) ? saved.notifyDays : selectedDays),
         scheduleRules: Array.isArray(saved.scheduleRules) ? saved.scheduleRules : rules
       };
       updateCardDOM(state.devices[idx]);
@@ -456,13 +582,13 @@ function connectWS(){
     console.warn('SockJS/STOMP no cargados. Revisa los <script> en Main.html');
     return;
   }
-  const sock = new SockJS(`${WS_BASE}/ws`); // ej: http://localhost:8081/ws
+  const sock = new SockJS(`${WS_BASE}/ws`);
   stomp = Stomp.over(sock);
   stomp.reconnect_delay = 2000;
   stomp.connect({}, () => {
     stomp.subscribe('/topic/devices/changes', (frame) => {
       try {
-        const change = JSON.parse(frame.body); // {id, online, latencyMs, updatedAt}
+        const change = JSON.parse(frame.body);
         const i = state.devices.findIndex(d => d.id === change.id);
         if (i >= 0) {
           state.devices[i].online  = change.online;
@@ -499,8 +625,8 @@ $('#shuffleBtn').addEventListener('click', () =>{
   state.devices = state.devices.map(d => ({...d, online: Math.random() > 0.5 }));
   render();
 });
-$('#addDeviceBtn').addEventListener('click', async () =>{
-  alert('Crear dispositivo (POST) — pendiente');
+$('#addDeviceBtn').addEventListener('click', () =>{
+  openCreate();
 });
 
 /* ===================== Inicio ===================== */

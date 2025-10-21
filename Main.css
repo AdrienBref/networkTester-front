@@ -200,3 +200,21 @@ fieldset.full{ border:1px solid var(--border); border-radius:8px; padding:12px }
 @media (max-width: 680px){
   .days-right{ grid-template-columns: repeat(7, 1fr); }
 }
+
+/* Botón de eliminar en modal */
+.btn.danger {
+  background: #3a0d0d;
+  border: 1px solid #5b1818;
+  color: #ffb3b3;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.btn.danger:hover {
+  background: #5b1818;
+  color: #fff;
+}
+.modal-actions .spacer {
+  flex: 1;
+}

@@ -11,7 +11,7 @@
       <div class="brand">ARGOS <span>Network Tester</span></div>
       <div class="actions">
         <button id="addDeviceBtn" class="btn">Añadir dispositivo</button>
-        <button id="shuffleBtn" class="btn btn-ghost">Simular estados</button>
+        <button id="shuffleBtn" class="btn btn-ghost">Ping Manual</button>
       </div>
     </header>
 
@@ -64,7 +64,7 @@
       </article>
     </template>
 
-    <!-- Modal de parámetros avanzados -->
+    <!-- Modal de parámetros avanzados / creación -->
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="modal-box">
         <div class="modal-head">
@@ -100,7 +100,6 @@
             <fieldset class="full">
               <legend>Horario (opcional)</legend>
 
-              <!-- fila con horario a la izquierda y días (L M X J V S D) a la derecha -->
               <div class="schedule-row" id="schedWrap">
                 <div class="inline">
                   <label>Inicio (HH:MM)
@@ -131,20 +130,22 @@
               <small>Deja el horario vacío para 24/7.</small>
             </fieldset>
 
-            <!-- NUEVO: Reglas por día -->
+            <!-- Reglas opcionales (se muestran si quieres; el back de creación no las usa) -->
             <fieldset class="full rules" id="rulesWrap" hidden>
               <legend>Reglas de horarios por día</legend>
               <div id="rulesList" class="rules-list"></div>
               <div class="rules-actions">
                 <button type="button" id="ruleAdd" class="btn small">+ Añadir regla</button>
               </div>
-              <small>Puedes definir varias reglas, cada una con un día y un intervalo (inicio/fin).</small>
+              <small>Puedes definir varias reglas, pero para la creación sólo se enviará el horario general y los días.</small>
             </fieldset>
           </div>
 
           <div class="modal-actions">
+            <button type="button" id="deleteDeviceBtn" class="btn danger" title="Eliminar dispositivo">🗑️</button>
+            <div class="spacer"></div>
             <button type="button" id="modal-cancel">Cancelar</button>
-            <button type="submit" class="primary">Guardar cambios</button>
+            <button type="submit" class="primary">Guardar</button>
           </div>
         </form>
       </div>
