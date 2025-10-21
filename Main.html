@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Argos — Network Tester</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="Main.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">ARGOS <span>Network Tester</span></div>
+      <div class="actions">
+        <button id="addDeviceBtn" class="btn">Añadir dispositivo</button>
+        <button id="shuffleBtn" class="btn btn-ghost">Simular estados</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="status" class="status"></section>
+      <section id="grid" class="grid" aria-live="polite"></section>
+    </main>
+
+    <!-- Tarjeta -->
+    <template id="card-template">
+      <article class="card" data-id="">
+        <div class="card-head" aria-expanded="false">
+          <div class="left">
+            <div class="title">
+              <span class="name"></span>
+              <span class="ip"></span>
+            </div>
+          </div>
+          <div class="right">
+            <span class="status" title="Estado">
+              <span class="dot" aria-hidden="true"></span>
+              <span class="status-text">Desconocido</span>
+            </span>
+            <button class="gear" title="Parámetros avanzados" aria-label="Parámetros avanzados">⚙️</button>
+            <button class="btn btn-ghost refresh" title="Refrescar">↻</button>
+          </div>
+        </div>
+
+        <div class="card-body" hidden>
+          <div class="row">
+            <label>
+              Intervalo de ping (ms)
+              <input type="number" class="ping-every" min="250" step="50" value="1000" />
+            </label>
+            <label>
+              Minutos offline para alarma
+              <input type="number" class="min-offline" min="0" step="1" value="1" />
+            </label>
+          </div>
+
+          <div class="row row-actions">
+            <label class="checkbox">
+              <input type="checkbox" class="always-test" />
+              Testear siempre
+            </label>
+            <div class="spacer"></div>
+            <button class="btn save-card">Guardar cambios</button>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <!-- Modal de parámetros avanzados -->
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-box">
+        <div class="modal-head">
+          <h3 id="modal-title">Editar dispositivo</h3>
+          <button id="modal-close" class="close" aria-label="Cerrar">✖</button>
+        </div>
+        <form id="modal-form">
+          <div class="form-grid">
+            <label>Nombre
+              <input type="text" id="f-name" required />
+            </label>
+            <label>IP / Host
+              <input type="text" id="f-ip" required />
+            </label>
+            <label>Ping (ms)
+              <input type="number" id="f-pingEvery" min="250" step="50" required />
+            </label>
+            <label>Mín. offline para alarma (min)
+              <input type="number" id="f-minOfflineAlarm" min="0" step="1" required />
+            </label>
+
+            <div class="row between full align-center">
+              <label class="check">
+                <input type="checkbox" id="f-always" />
+                Test siempre
+              </label>
+              <!-- Botón para reglas -->
+              <button type="button" id="add-rules-btn" class="link-btn">
+                <span class="plus">+</span> Añadir reglas de horarios
+              </button>
+            </div>
+
+            <fieldset class="full">
+              <legend>Horario (opcional)</legend>
+
+              <!-- fila con horario a la izquierda y días (L M X J V S D) a la derecha -->
+              <div class="schedule-row" id="schedWrap">
+                <div class="inline">
+                  <label>Inicio (HH:MM)
+                    <div class="inline-pair">
+                      <input type="number" id="f-horaInicio" min="0" max="23" placeholder="HH" />
+                      <input type="number" id="f-minInicio" min="0" max="59" placeholder="MM" />
+                    </div>
+                  </label>
+                  <label>Fin (HH:MM)
+                    <div class="inline-pair">
+                      <input type="number" id="f-horaFin" min="0" max="23" placeholder="HH" />
+                      <input type="number" id="f-minFin" min="0" max="59" placeholder="MM" />
+                    </div>
+                  </label>
+                </div>
+
+                <div class="days days-right" id="daysWrap" aria-label="Días de la semana">
+                  <label><input type="checkbox" name="f-days" value="MONDAY" /><span>L</span></label>
+                  <label><input type="checkbox" name="f-days" value="TUESDAY" /><span>M</span></label>
+                  <label><input type="checkbox" name="f-days" value="WEDNESDAY" /><span>X</span></label>
+                  <label><input type="checkbox" name="f-days" value="THURSDAY" /><span>J</span></label>
+                  <label><input type="checkbox" name="f-days" value="FRIDAY" /><span>V</span></label>
+                  <label><input type="checkbox" name="f-days" value="SATURDAY" /><span>S</span></label>
+                  <label><input type="checkbox" name="f-days" value="SUNDAY" /><span>D</span></label>
+                </div>
+              </div>
+
+              <small>Deja el horario vacío para 24/7.</small>
+            </fieldset>
+
+            <!-- NUEVO: Reglas por día -->
+            <fieldset class="full rules" id="rulesWrap" hidden>
+              <legend>Reglas de horarios por día</legend>
+              <div id="rulesList" class="rules-list"></div>
+              <div class="rules-actions">
+                <button type="button" id="ruleAdd" class="btn small">+ Añadir regla</button>
+              </div>
+              <small>Puedes definir varias reglas, cada una con un día y un intervalo (inicio/fin).</small>
+            </fieldset>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" id="modal-cancel">Cancelar</button>
+            <button type="submit" class="primary">Guardar cambios</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Config y librerías -->
+    <script>
+      // Ajusta si tu backend corre en otro host/puerto:
+      window.API_BASE = 'http://localhost:8081';
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <script src="Main.js"></script>
+  </body>
+</html>
