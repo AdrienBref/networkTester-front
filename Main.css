@@ -218,3 +218,17 @@ fieldset.full{ border:1px solid var(--border); border-radius:8px; padding:12px }
 .modal-actions .spacer {
   flex: 1;
 }
+/* Lista de emails en modal de configuración */
+.email-list{ display:flex; flex-direction:column; gap:10px }
+.email-row{
+  display:grid; grid-template-columns: 1fr 100px; gap:10px; align-items:center;
+}
+.email-row input[type="email"]{
+  background:#0f1422; color:var(--text); border:1px solid var(--border);
+  border-radius:8px; padding:10px 12px; width:100%;
+}
+.email-row .remove{
+  background:#1f2937; color:#fff; border:none; border-radius:8px; padding:8px 10px; cursor:pointer;
+}
+.email-row .remove:hover{ background:#111827 }
+

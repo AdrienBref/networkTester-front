@@ -154,6 +154,7 @@ function render(){
           notifyDays: Array.isArray(dev.notifyDays) ? dev.notifyDays : [],
           scheduleRules: Array.isArray(dev.scheduleRules) ? dev.scheduleRules : []
         };
+        console.log(payload)
 
         try {
           const res = await fetch(ENDPOINTS.updateDevice(dev.id), {
@@ -163,7 +164,7 @@ function render(){
           });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const saved = await res.json();
-
+          window.location.reload();
           dev.pingEvery = saved.pingInterval;
           dev.always = saved.testAlways;
           dev.minOfflineAlarm = saved.minOfflineAlarm;
@@ -172,7 +173,7 @@ function render(){
           dev.notifyDays   = Array.isArray(saved.notificationDays) ? saved.notificationDays
                                 : (Array.isArray(saved.notifyDays) ? saved.notifyDays : (dev.notifyDays || []));
           dev.scheduleRules = Array.isArray(saved.scheduleRules) ? saved.scheduleRules : (dev.scheduleRules || []);
-
+          console.log(body)
           setStatus(`Dispositivo "${dev.name}" actualizado`, '');
         } catch (err) {
           console.error(err);
@@ -370,6 +371,139 @@ deleteBtn.addEventListener('click', async () => {
   });
 }
 
+/* ===================== Modal Configuración General (emails) ===================== */
+const configBtn    = $('#configBtn');
+const configModal  = $('#config-modal');
+const configForm   = $('#config-form');
+const configClose  = $('#config-close');
+const configCancel = $('#config-cancel');
+const emailAddBtn  = $('#emailAddBtn');
+const emailList    = $('#emailList');
+
+const ENDPOINTS_EMAIL = {
+  recipients: `${API_BASE}/api/email/recipients`
+};
+
+// ---- Helpers ----
+function parseEmailSeed(data) {
+  // Acepta {emails:[...]}, ["a@..."], o [{id,email}]
+  if (!data) return [];
+  if (Array.isArray(data)) {
+    if (data.length === 0) return [];
+    if (typeof data[0] === 'string') return data;
+    if (typeof data[0] === 'object' && data[0]?.email) return data.map(x => x.email).filter(Boolean);
+    return [];
+  }
+  if (Array.isArray(data.emails)) return data.emails;
+  return [];
+}
+
+function openConfig(initial = []) {
+  emailList.innerHTML = '';
+  if (initial.length === 0) {
+    addEmailRow('');
+  } else {
+    initial.forEach(e => addEmailRow(e));
+  }
+  configModal.classList.remove('hidden');
+}
+
+function closeConfig() {
+  configModal.classList.add('hidden');
+}
+
+function addEmailRow(value = '') {
+  const row = document.createElement('div');
+  row.className = 'email-row';
+  row.innerHTML = `
+    <input type="email" class="email-input" placeholder="correo@dominio.com" value="${value || ''}" />
+    <button type="button" class="remove">Eliminar</button>
+  `;
+  row.querySelector('.remove').addEventListener('click', () => {
+    row.remove();
+    if (emailList.children.length === 0) addEmailRow('');
+  });
+  emailList.appendChild(row);
+}
+
+function collectEmails() {
+  return Array.from(emailList.querySelectorAll('.email-input'))
+    .map(i => (i.value || '').trim())
+    .filter(v => v.length > 0);
+}
+
+function isValidEmail(e) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
+// ---- Un único listener para abrir el modal y cargar datos ----
+if (configBtn) {
+  configBtn.addEventListener('click', async () => {
+    let seed = [];
+    try {
+      const res = await fetch(ENDPOINTS_EMAIL.recipients, { headers: { 'Accept': 'application/json' } });
+      if (res.ok) {
+        const data = await res.json();
+        seed = parseEmailSeed(data);
+      } else {
+        console.warn('GET recipients HTTP', res.status);
+      }
+    } catch (e) {
+      console.warn('Error obteniendo emails:', e);
+    }
+    openConfig(seed);
+  });
+}
+
+// (recuerda tener también los listeners de cerrar/cancelar y submit en otra parte)
+
+
+if (configClose)  configClose.addEventListener('click', closeConfig);
+if (configCancel) configCancel.addEventListener('click', closeConfig);
+if (emailAddBtn)  emailAddBtn.addEventListener('click', ()=> addEmailRow(''));
+
+// Guardar emails
+if (configForm) {
+  configForm.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const emails = collectEmails();
+
+    if (emails.length === 0) {
+      setStatus('Añade al menos un email', 'error');
+      return;
+    }
+    const invalid = emails.filter(e => !isValidEmail(e));
+    if (invalid.length){
+      setStatus(`Hay emails con formato inválido: ${invalid.join(', ')}`, 'error');
+      return;
+    }
+
+    // (Opción 1) Guardado en backend si ya tienes endpoint
+    try{
+      setStatus('Guardando configuración de emails…', 'loading');
+      const res = await fetch(ENDPOINTS_EMAIL.recipients, {
+        method: 'PUT',
+        headers: { 'Content-Type':'application/json', 'Accept':'application/json' },
+        body: JSON.stringify(( emails.map(email => ({ email }))
+))
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      setStatus('Configuración de emails guardada', '');
+      closeConfig();
+    } catch(err){
+      console.error(err);
+      setStatus(`Error guardando emails: ${err.message||err}`, 'error');
+    }
+
+    // (Opción 2) Si aún no tienes back, comenta el bloque try/catch de arriba
+    // y deja simplemente:
+    // console.log('Emails configurados:', emails);
+    // closeConfig(); setStatus('Configuración de emails (local) aplicada', '');
+  });
+}
+
+
 /* ====== Reglas UI ====== */
 function renderRules(rules){
   rulesWrap.hidden = false;
@@ -537,8 +671,7 @@ form.addEventListener('submit', async (e) => {
     minOfflineAlarm: Number($('#f-minOfflineAlarm')?.value) || 0,
     start,
     end,
-    notifyDays: selectedDays,
-    scheduleRules: rules
+    notifyDays: selectedDays
   };
 
   try{
@@ -549,7 +682,7 @@ form.addEventListener('submit', async (e) => {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const saved = await res.json();
-
+    window.location.reload();
     const idx = state.devices.findIndex(d => d.id === saved.id);
     if (idx >= 0) {
       state.devices[idx] = {
@@ -562,8 +695,7 @@ form.addEventListener('submit', async (e) => {
         start: toHHMM(saved.startTime ?? saved.start) || '',
         end:   toHHMM(saved.endTime   ?? saved.end)   || '',
         notifyDays: Array.isArray(saved.notificationDays) ? saved.notificationDays
-                      : (Array.isArray(saved.notifyDays) ? saved.notifyDays : selectedDays),
-        scheduleRules: Array.isArray(saved.scheduleRules) ? saved.scheduleRules : rules
+                      : (Array.isArray(saved.notifyDays) ? saved.notifyDays : selectedDays)
       };
       updateCardDOM(state.devices[idx]);
     }
